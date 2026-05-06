@@ -134,7 +134,7 @@ export default function ChatInterface() {
 
       // Call Python backend
       const response = await axios.post(
-        'http://localhost:8000/api/chat',
+        'https://fitness-tracker-api-jvja.onrender.com/api/chat',
         {
           message: userMessage,
           user_id: user.uid,
@@ -199,7 +199,7 @@ export default function ChatInterface() {
 
     try {
       const response = await axios.post(
-        'http://localhost:8000/api/workout/log',
+        'https://fitness-tracker-api-jvja.onrender.com/api/workout/log',
         {
           exercise,
           reps,
@@ -257,7 +257,7 @@ export default function ChatInterface() {
         }. Please give a brief assessment and any quick tips.`;
 
         const aiResp = await axios.post(
-          'http://localhost:8000/api/chat',
+          'https://fitness-tracker-api-jvja.onrender.com/api/chat',
           { message: feedbackPrompt, user_id: user.uid },
           { timeout: 20000 }
         );
