@@ -18,6 +18,34 @@ def contains_cjk(text: str) -> bool:
         return False
     return bool(re.search(r"[\u4E00-\u9FFF\u3400-\u4DBF\uF900-\uFAFF\u3000-\u303F]", text))
 
+
+def asks_about_creator(text: str) -> bool:
+    """Return True when the user is asking who made the app or why it was made."""
+    if not text:
+        return False
+
+    normalized = text.lower()
+    keywords = [
+        "who made this",
+        "who created this",
+        "who built this",
+        "who developed this",
+        "made this",
+        "created this",
+        "built this",
+        "developed this",
+        "why made this",
+        "why was this made",
+        "why is this made",
+        "why create this",
+        "why did you make this",
+        "about the creator",
+        "who is the creator",
+        "final project",
+    ]
+
+    return any(keyword in normalized for keyword in keywords)
+
 load_dotenv()
 
 app = FastAPI()
@@ -75,6 +103,16 @@ async def chat(data: ChatMessage):
         logger.error("OpenRouter API key not configured")
         raise HTTPException(status_code=500, detail="OpenRouter API key not configured")
 
+    creator_prompt = ""
+    if asks_about_creator(data.message):
+        creator_prompt = """
+Creator and purpose rule:
+- If the user asks who made this, who created this, why this was made, or anything similar, answer clearly and professionally.
+- Say: "This system was made by Deniel Cuamag for their final project."
+- If the user asks why it was made, explain that it was built as a final project to showcase an AI fitness coach, workout logging, and supportive user interaction.
+- Keep the answer brief, polished, and confident.
+"""
+
     system_prompt = """You are an enthusiastic and knowledgeable AI fitness coach named FitBot. Your role is to:
 
 1. Help users log their workouts in a friendly way
@@ -91,15 +129,19 @@ Important language rules:
 Response tone and format:
 - Keep responses concise (2-4 sentences), friendly, and actionable.
 - Use a supportive, energetic tone without being overwhelming.
-- End every response with the signature: — Deniel Cuamag
+
+Only mention Deniel Cuamag when the user asks who made this, who created this, why it was made, or a similar question about the creator or purpose.
 
 Examples:
 User: "I did 20 pushups"
 You: "Great work! 20 pushups is solid. That burned approximately 30-40 calories. Keep building that upper body strength! — Deniel Cuamag"
 
 User: "Give me a workout plan"
-You: "I'd love to help! What's your main goal - building muscle, losing weight, or general fitness? And how many days per week can you commit? — Deniel Cuamag"
+You: "I'd love to help! What's your main goal - building muscle, losing weight, or general fitness? And how many days per week can you commit?"
 """
+
+    if creator_prompt:
+        system_prompt = system_prompt + "\n\n" + creator_prompt
     
     last_error = None
   
@@ -164,8 +206,6 @@ You: "I'd love to help! What's your main goal - building muscle, losing weight, 
                     ai_message = result["choices"][0]["message"]["content"]
 
                     ai_message = ai_message.strip()
-                    if "Deniel Cuamag" not in ai_message:
-                        ai_message = ai_message + "\n\n— Deniel Cuamag"
                     # If the model reply contains CJK characters, ask the model once
                     # to provide the same content translated into English or Bisaya.
                     if contains_cjk(ai_message):
@@ -194,8 +234,6 @@ You: "I'd love to help! What's your main goal - building muscle, losing weight, 
                             if response2.status_code == 200:
                                 result2 = response2.json()
                                 ai_message_2 = result2["choices"][0]["message"]["content"].strip()
-                                if "Deniel Cuamag" not in ai_message_2:
-                                    ai_message_2 = ai_message_2 + "\n\n— Deniel Cuamag"
 
                                 # If translation still contains CJK, fall back to a canned English message
                                 if contains_cjk(ai_message_2):
@@ -212,13 +250,13 @@ You: "I'd love to help! What's your main goal - building muscle, losing weight, 
                                 logger.warning(f"Translation request failed with status {response2.status_code}")
                                 ai_message = (
                                     "Sorry, I couldn't translate the assistant reply right now. "
-                                    "Please try again. — Deniel Cuamag"
+                                    "Please try again."
                                 )
                         except Exception as ex:
                             logger.error(f"Translation retry error: {ex}")
                             ai_message = (
                                 "Sorry, I couldn't translate the assistant reply right now. "
-                                "Please try again. — Deniel Cuamag"
+                                "Please try again."
                             )
 
                     logger.info(f"Success with model: {model}")
