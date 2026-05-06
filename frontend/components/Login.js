@@ -32,15 +32,13 @@ export default function Login() {
 
   return (
     <div className="min-h-screen flex">
-      {/* Left Side - Branding */}
       <div className="hidden lg:flex lg:w-1/2 bg-gradient-to-br from-blue-600 via-blue-700 to-purple-700 p-12 flex-col justify-between relative overflow-hidden">
-        {/* Background Pattern */}
+        
         <div className="absolute inset-0 opacity-10">
           <div className="absolute top-0 left-0 w-96 h-96 bg-white rounded-full -translate-x-1/2 -translate-y-1/2"></div>
           <div className="absolute bottom-0 right-0 w-96 h-96 bg-white rounded-full translate-x-1/2 translate-y-1/2"></div>
         </div>
-
-        {/* Content */}
+        
         <div className="relative z-10">
           <div className="flex items-center space-x-3 mb-6">
             <div className="bg-white/20 backdrop-blur-sm p-3 rounded-xl">
@@ -84,17 +82,15 @@ export default function Login() {
         </div>
       </div>
 
-      {/* Right Side - Form */}
       <div className="w-full lg:w-1/2 flex items-center justify-center p-8 bg-gray-50">
         <div className="w-full max-w-md">
-          {/* Mobile Logo */}
+          
           <div className="lg:hidden flex items-center justify-center mb-8">
             <div className="bg-blue-600 p-4 rounded-2xl">
               <Dumbbell className="w-10 h-10 text-white" />
             </div>
           </div>
-
-          {/* Form Card */}
+          
           <div className="bg-white rounded-2xl shadow-xl p-8">
             <div className="mb-8">
               <h2 className="text-3xl font-bold text-gray-900 mb-2">
@@ -105,16 +101,15 @@ export default function Login() {
               </p>
             </div>
 
-            {/* Error Message */}
+            
             {error && (
               <div className="mb-6 p-4 bg-red-50 border-l-4 border-red-500 rounded-r-lg">
                 <p className="text-red-700 text-sm">{error}</p>
               </div>
             )}
-
-            {/* Form */}
+            
             <form onSubmit={handleSubmit} className="space-y-5">
-              {/* Email Input */}
+              
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-2">
                   Email address
@@ -134,7 +129,7 @@ export default function Login() {
                 </div>
               </div>
 
-              {/* Password Input */}
+              
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-2">
                   Password
@@ -164,7 +159,7 @@ export default function Login() {
                 </div>
               </div>
 
-              {/* Submit Button */}
+              
               <button
                 type="submit"
                 disabled={loading}
@@ -181,7 +176,7 @@ export default function Login() {
               </button>
             </form>
 
-            {/* Toggle Login/Signup */}
+            
             <div className="mt-6 text-center">
               <button
                 onClick={() => {
@@ -195,7 +190,6 @@ export default function Login() {
             </div>
           </div>
 
-          {/* Footer */}
           <p className="text-center text-sm text-gray-500 mt-8">
             By continuing, you agree to our Terms of Service and Privacy Policy
           </p>
