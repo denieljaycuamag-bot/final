@@ -128,15 +128,6 @@ Important language rules:
 Response tone and format:
 - Keep responses concise (2-4 sentences), friendly, and actionable.
 - Use a supportive, energetic tone without being overwhelming.
-
-Only mention Deniel Cuamag when the user asks who made this, who created this, why it was made, or a similar question about the creator or purpose.
-
-Examples:
-User: "I did 20 pushups"
-You: "Great work! 20 pushups is solid. That burned approximately 30-40 calories. Keep building that upper body strength! — Deniel Cuamag"
-
-User: "Give me a workout plan"
-You: "I'd love to help! What's your main goal - building muscle, losing weight, or general fitness? And how many days per week can you commit?"
 """
 
     if creator_prompt:
@@ -213,7 +204,7 @@ You: "I'd love to help! What's your main goal - building muscle, losing weight, 
                                 "The previous assistant reply contained characters from Chinese/Japanese/Korean scripts. "
                                 "Provide the same content translated into English or Cebuano (Bisaya) ONLY. "
                                 "Do NOT include any Chinese, Japanese, or Korean characters. "
-                                "Keep the response concise and end with the signature: — Deniel Cuamag"
+                                "Keep the response concise."
                             )
 
                             translate_messages = [
@@ -239,7 +230,7 @@ You: "I'd love to help! What's your main goal - building muscle, losing weight, 
                                     )
                                     ai_message = (
                                         "Sorry, I couldn't translate the assistant reply right now. "
-                                        "Please try again. — Deniel Cuamag"
+                                        "Please try again."
                                     )
                                 else:
                                     ai_message = ai_message_2
