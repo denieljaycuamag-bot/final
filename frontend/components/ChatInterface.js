@@ -2,7 +2,7 @@
 import { useState, useEffect, useRef } from 'react';
 import { useAuth } from '@/lib/AuthContext';
 import { db } from '@/lib/firebase';
-import { collection, addDoc, query, where, onSnapshot, serverTimestamp } from 'firebase/firestore';
+import { collection, addDoc, query, where, onSnapshot, serverTimestamp, deleteDoc, doc } from 'firebase/firestore';
 import axios from 'axios';
 import {
   Send,
@@ -39,6 +39,7 @@ export default function ChatInterface() {
     durationMinutes: '',
     notes: '',
   });
+  const [deleteModal, setDeleteModal] = useState({ open: false, workoutId: null });
   const messagesEndRef = useRef(null);
 
   const scrollToBottom = () => {
@@ -299,6 +300,35 @@ export default function ChatInterface() {
     }
   };
 
+  const deleteWorkout = async (workoutId) => {
+    if (!user) return;
+    
+    try {
+      const workoutToDelete = workoutHistory.find((w) => w.id === workoutId);
+      if (!workoutToDelete) return;
+
+      await deleteDoc(doc(db, 'workouts', workoutId));
+      setWorkoutHistory((prev) => prev.filter((w) => w.id !== workoutId));
+
+      await addDoc(collection(db, 'messages'), {
+        userId: user.uid,
+        role: 'assistant',
+        content: `Deleted workout: ${workoutToDelete.exercise}. You can always log it again anytime!`,
+        timestamp: new Date(),
+      });
+
+      setDeleteModal({ open: false, workoutId: null });
+    } catch (err) {
+      console.error('Error deleting workout:', err);
+      await addDoc(collection(db, 'messages'), {
+        userId: user.uid,
+        role: 'assistant',
+        content: 'Failed to delete workout. Please try again.',
+        timestamp: new Date(),
+      });
+    }
+  };
+
   const weeklyWorkouts = workoutHistory.filter((workout) => {
     if (!workout.timestamp) return false;
     const workoutDate = new Date(workout.timestamp);
@@ -526,6 +556,14 @@ export default function ChatInterface() {
                           {workout.notes}
                         </p>
                       )}
+                      <div className="flex gap-2 mt-2.5">
+                        <button
+                          onClick={() => setDeleteModal({ open: true, workoutId: workout.id })}
+                          className="flex-1 px-2 py-1.5 text-[11px] font-medium bg-red-50 text-red-600 rounded-lg hover:bg-red-100 transition"
+                        >
+                          Delete
+                        </button>
+                      </div>
                     </div>
                   ))}
                 </div>
@@ -707,6 +745,31 @@ export default function ChatInterface() {
             </p>
           </div>
         </div>
+
+        {deleteModal.open && (
+          <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+            <div className="bg-white rounded-2xl shadow-xl p-6 max-w-sm w-full">
+              <h3 className="text-lg font-semibold text-slate-900 mb-2">Delete Workout?</h3>
+              <p className="text-sm text-slate-600 mb-6">
+                Are you sure you want to delete this workout? This action cannot be undone.
+              </p>
+              <div className="flex gap-3">
+                <button
+                  onClick={() => setDeleteModal({ open: false, workoutId: null })}
+                  className="flex-1 px-4 py-2.5 text-sm font-medium text-slate-700 bg-slate-100 rounded-lg hover:bg-slate-200 transition"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={() => deleteWorkout(deleteModal.workoutId)}
+                  className="flex-1 px-4 py-2.5 text-sm font-medium text-white bg-red-600 rounded-lg hover:bg-red-700 transition"
+                >
+                  Delete
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
       </div>
     </div>
   );

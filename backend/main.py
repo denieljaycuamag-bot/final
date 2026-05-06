@@ -73,7 +73,6 @@ AI_MODELS = [
     "google/gemini-flash-1.5:free"
 ]
 
-
 class ChatMessage(BaseModel):
     message: str
     user_id: str
@@ -108,8 +107,8 @@ async def chat(data: ChatMessage):
         creator_prompt = """
 Creator and purpose rule:
 - If the user asks who made this, who created this, why this was made, or anything similar, answer clearly and professionally.
-- Say: "This system was made by Deniel Cuamag for their final project."
-- If the user asks why it was made, explain that it was built as a final project to showcase an AI fitness coach, workout logging, and supportive user interaction.
+- Say: "This Fitness Tracker system was made by BSIT students for their final project."
+- If the user asks why it was made, explain that it was built as a final project to showcase AI fitness coaching, workout logging, and supportive user interaction with advanced features.
 - Keep the answer brief, polished, and confident.
 """
 
@@ -206,8 +205,7 @@ You: "I'd love to help! What's your main goal - building muscle, losing weight, 
                     ai_message = result["choices"][0]["message"]["content"]
 
                     ai_message = ai_message.strip()
-                    # If the model reply contains CJK characters, ask the model once
-                    # to provide the same content translated into English or Bisaya.
+                    
                     if contains_cjk(ai_message):
                         logger.warning(f"CJK detected in model response for user {data.user_id} using {model}")
                         try:
@@ -235,7 +233,6 @@ You: "I'd love to help! What's your main goal - building muscle, losing weight, 
                                 result2 = response2.json()
                                 ai_message_2 = result2["choices"][0]["message"]["content"].strip()
 
-                                # If translation still contains CJK, fall back to a canned English message
                                 if contains_cjk(ai_message_2):
                                     logger.warning(
                                         f"CJK still detected after translation retry for user {data.user_id} using {model}"
@@ -313,6 +310,46 @@ async def get_workouts(user_id: str):
         "user_id": user_id,
         "workouts": workout_history.get(user_id, [])
     }
+
+
+@app.put("/api/workouts/{user_id}/{workout_id}")
+async def update_workout(user_id: str, workout_id: str, workout: WorkoutLog):
+    """Update a workout in the history"""
+    if user_id not in workout_history:
+        raise HTTPException(status_code=404, detail="No workouts found for this user")
+    
+    for i, w in enumerate(workout_history[user_id]):
+        if w.get("id") == workout_id or str(i) == workout_id:
+            workout_history[user_id][i].update({
+                "exercise": workout.exercise,
+                "reps": workout.reps,
+                "sets": workout.sets,
+                "duration_minutes": workout.duration_minutes,
+                "notes": workout.notes,
+            })
+            return {
+                "message": "Workout updated successfully!",
+                "data": workout_history[user_id][i]
+            }
+    
+    raise HTTPException(status_code=404, detail="Workout not found")
+
+
+@app.delete("/api/workouts/{user_id}/{workout_id}")
+async def delete_workout(user_id: str, workout_id: str):
+    """Delete a workout from the history"""
+    if user_id not in workout_history:
+        raise HTTPException(status_code=404, detail="No workouts found for this user")
+    
+    for i, w in enumerate(workout_history[user_id]):
+        if w.get("id") == workout_id or str(i) == workout_id:
+            deleted = workout_history[user_id].pop(i)
+            return {
+                "message": "Workout deleted successfully!",
+                "deleted_workout": deleted
+            }
+    
+    raise HTTPException(status_code=404, detail="Workout not found")
 
 
 @app.get("/api/health")
