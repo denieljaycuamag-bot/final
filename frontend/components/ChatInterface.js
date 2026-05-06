@@ -20,6 +20,9 @@ import {
   ClipboardList,
 } from 'lucide-react';
 
+const API_BASE_URL =
+  process.env.NEXT_PUBLIC_API_BASE_URL || 'https://fitness-tracker-api-jvja.onrender.com';
+
 export default function ChatInterface() {
   const { user, logout } = useAuth();
   const [messages, setMessages] = useState([]);
@@ -46,7 +49,6 @@ export default function ChatInterface() {
     scrollToBottom();
   }, [messages]);
 
-  // Load messages from Firebase
   useEffect(() => {
     if (!user) return;
 
@@ -70,25 +72,25 @@ export default function ChatInterface() {
     const unsubscribe = onSnapshot(
       q,
       (snapshot) => {
-        // Debug snapshot so we can see data arriving in console during development
+      
         try {
           console.info('workouts snapshot size=', snapshot.size);
         } catch {}
 
         const data = snapshot.docs.map((d) => {
           const raw = d.data();
-          // Normalize Firestore Timestamp to milliseconds for consistent rendering
+          
           let ts = null;
           if (raw.timestamp && typeof raw.timestamp.toMillis === 'function') {
             ts = raw.timestamp.toMillis();
           } else if (raw.timestamp) {
-            // fallback if timestamp was stored as a JS Date or number
+            
             ts = new Date(raw.timestamp).getTime();
           } else {
             ts = Date.now();
           }
 
-          // Normalize numeric fields that may have been stored as strings
+          
           const sets = Number(raw.sets) || 0;
           const reps = Number(raw.reps) || 0;
           const duration_minutes = Number(raw.duration_minutes) || 0;
@@ -103,7 +105,7 @@ export default function ChatInterface() {
           };
         });
 
-        // Keep chronological order client-side
+        
         data.sort((a, b) => (a.timestamp || 0) - (b.timestamp || 0));
         setWorkoutHistory(data);
       },
@@ -124,7 +126,7 @@ export default function ChatInterface() {
     setLoading(true);
 
     try {
-      // Save user message to Firebase
+      
       await addDoc(collection(db, 'messages'), {
         userId: user.uid,
         role: 'user',
@@ -132,9 +134,9 @@ export default function ChatInterface() {
         timestamp: new Date(),
       });
 
-      // Call Python backend
+      
       const response = await axios.post(
-        'https://fitness-tracker-api-jvja.onrender.com/api/chat',
+        `${API_BASE_URL}/api/chat`,
         {
           message: userMessage,
           user_id: user.uid,
@@ -144,7 +146,7 @@ export default function ChatInterface() {
         }
       );
 
-      // Save AI response to Firebase
+      
       await addDoc(collection(db, 'messages'), {
         userId: user.uid,
         role: 'assistant',
@@ -199,7 +201,7 @@ export default function ChatInterface() {
 
     try {
       const response = await axios.post(
-        'https://fitness-tracker-api-jvja.onrender.com/api/workout/log',
+        `${API_BASE_URL}/api/workout/log`,
         {
           exercise,
           reps,
@@ -213,7 +215,7 @@ export default function ChatInterface() {
         }
       );
 
-      // Persist the workout to Firestore so it's available across devices
+      
       const workoutRef = await addDoc(collection(db, 'workouts'), {
         userId: user.uid,
         exercise,
@@ -224,7 +226,7 @@ export default function ChatInterface() {
         timestamp: serverTimestamp(),
       });
 
-      // Optimistically update local UI so sidebar updates immediately
+      
       try {
         const optimistic = {
           id: workoutRef.id,
@@ -238,7 +240,6 @@ export default function ChatInterface() {
         };
         setWorkoutHistory((prev) => [...prev, optimistic]);
         } catch {
-          // ignore optimistic update failures
         }
 
       await addDoc(collection(db, 'messages'), {
@@ -250,14 +251,14 @@ export default function ChatInterface() {
         timestamp: new Date(),
       });
 
-      // Ask the AI for feedback about the logged workout and save its reply
+      
       try {
         const feedbackPrompt = `I just logged: ${exercise} — ${sets} sets x ${reps} reps${
           durationMinutes ? `, ${durationMinutes} min` : ''
         }. Please give a brief assessment and any quick tips.`;
 
         const aiResp = await axios.post(
-          'https://fitness-tracker-api-jvja.onrender.com/api/chat',
+          `${API_BASE_URL}/api/chat`,
           { message: feedbackPrompt, user_id: user.uid },
           { timeout: 20000 }
         );
@@ -271,7 +272,6 @@ export default function ChatInterface() {
           });
         }
       } catch {
-        // ignore AI feedback errors but log a lightweight assistant message
         await addDoc(collection(db, 'messages'), {
           userId: user.uid,
           role: 'assistant',
@@ -315,7 +315,7 @@ export default function ChatInterface() {
     (total, workout) => total + (Number(workout.duration_minutes) || 0),
     0
   );
-  // lastWorkout intentionally unused; history is shown in the sidebar list
+  
 
   const suggestions = [
     'I did 20 pushups today',
@@ -326,13 +326,13 @@ export default function ChatInterface() {
 
   return (
     <div className="flex h-screen bg-slate-50 overflow-hidden font-sans antialiased">
-      {/* Sidebar - Desktop & Mobile Drawer */}
+      
       <div
         className={`fixed inset-y-0 left-0 z-50 w-[17rem] max-w-[84vw] sm:w-[18rem] lg:w-[17rem] xl:w-[17.5rem] bg-white border-r border-slate-200 shadow-2xl lg:shadow-none flex flex-col overflow-hidden transition-transform duration-300 ease-in-out ${
           sidebarOpen ? 'translate-x-0' : '-translate-x-full'
         } lg:translate-x-0 lg:static`}
       >
-        {/* Top Header & Quick Stats Section */}
+        
         <div className="flex-1 flex flex-col min-h-0">
           <div className="p-3.5 border-b border-slate-100 flex items-center justify-between gap-2">
             <div className="flex items-center space-x-3 min-w-0">
@@ -358,7 +358,7 @@ export default function ChatInterface() {
             </div>
           </div>
 
-          {/* Quick Stats Section */}
+          
           <div className="px-3.5 pt-3.5">
             <h3 className="text-[10px] font-bold text-slate-400 uppercase tracking-[0.22em] mb-2.5">
               Quick Stats
@@ -534,9 +534,8 @@ export default function ChatInterface() {
           </div>
         </div>
 
-        {/* Bottom Section: Profile Card */}
         <div className="p-3.5 border-t border-slate-100 bg-slate-50/50 space-y-3.5 shrink-0">
-          {/* User Profile Info Card */}
+          
           <div className="flex items-center space-x-3 p-3 bg-white border border-slate-200/80 rounded-xl shadow-sm">
             <div className="bg-gradient-to-br from-indigo-500 to-violet-600 p-2.5 rounded-xl shadow-sm">
               <User className="w-4 h-4 text-white" />
@@ -561,7 +560,7 @@ export default function ChatInterface() {
         </div>
       </div>
 
-      {/* Overlay for mobile sidebar */}
+      
       {sidebarOpen && (
         <div
           className="fixed inset-0 bg-slate-900/40 backdrop-blur-sm z-40 lg:hidden"
@@ -569,9 +568,8 @@ export default function ChatInterface() {
         />
       )}
 
-      {/* Main Chat Interface Area */}
       <div className="flex-1 flex flex-col h-full bg-white">
-        {/* Header */}
+        
         <header className="h-16 border-b border-slate-100 px-6 flex items-center justify-between bg-white/80 backdrop-blur-md sticky top-0 z-30">
           <div className="flex items-center space-x-4">
             <button
@@ -595,7 +593,7 @@ export default function ChatInterface() {
 
         </header>
 
-        {/* Message Feed */}
+        
         <div className="flex-1 overflow-y-auto px-6 py-8">
           <div className="max-w-3xl mx-auto space-y-6">
             {messages.length === 0 && (
@@ -611,7 +609,7 @@ export default function ChatInterface() {
                   a running history of your progress.
                 </p>
 
-                {/* Suggestions Grid */}
+                
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-3 max-w-2xl mx-auto">
                   {suggestions.map((suggestion, index) => (
                     <button
@@ -631,7 +629,7 @@ export default function ChatInterface() {
               </div>
             )}
 
-            {/* Message bubbles */}
+            
             {messages.map((msg) => (
               <div
                 key={msg.id}
@@ -651,7 +649,7 @@ export default function ChatInterface() {
               </div>
             ))}
 
-            {/* Typing Indicator */}
+            
             {loading && (
               <div className="flex justify-start">
                 <div className="bg-slate-50 border border-slate-200/60 px-5 py-4 rounded-2xl shadow-sm">
@@ -673,7 +671,7 @@ export default function ChatInterface() {
           </div>
         </div>
 
-        {/* Footer Textarea Input Section */}
+        
         <div className="bg-white border-t border-slate-100 px-6 py-5">
           <div className="max-w-3xl mx-auto">
             <div className="flex items-end space-x-3">

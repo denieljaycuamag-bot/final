@@ -21,10 +21,12 @@ def contains_cjk(text: str) -> bool:
 load_dotenv()
 
 app = FastAPI()
-allowed_origins = os.getenv("CORS_ORIGINS", "http://localhost:3000").split(",")
+allowed_origins = [origin.strip() for origin in os.getenv("CORS_ORIGINS", "http://localhost:3000").split(",") if origin.strip()]
+allowed_origin_regex = os.getenv("CORS_ORIGIN_REGEX", r"https://.*\\.vercel\\.app$")
 app.add_middleware(
     CORSMiddleware,
     allow_origins=allowed_origins,
+    allow_origin_regex=allowed_origin_regex,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -167,6 +169,7 @@ You: "I'd love to help! What's your main goal - building muscle, losing weight, 
                     # If the model reply contains CJK characters, ask the model once
                     # to provide the same content translated into English or Bisaya.
                     if contains_cjk(ai_message):
+                        logger.warning(f"CJK detected in model response for user {data.user_id} using {model}")
                         try:
                             translate_instructions = (
                                 "The previous assistant reply contained characters from Chinese/Japanese/Korean scripts. "
@@ -196,6 +199,9 @@ You: "I'd love to help! What's your main goal - building muscle, losing weight, 
 
                                 # If translation still contains CJK, fall back to a canned English message
                                 if contains_cjk(ai_message_2):
+                                    logger.warning(
+                                        f"CJK still detected after translation retry for user {data.user_id} using {model}"
+                                    )
                                     ai_message = (
                                         "Sorry, I couldn't translate the assistant reply right now. "
                                         "Please try again. — Deniel Cuamag"
