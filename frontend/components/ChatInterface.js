@@ -1,5 +1,6 @@
 'use client';
 import { useState, useEffect, useRef } from 'react';
+import Link from 'next/link';
 import { useAuth } from '@/lib/AuthContext';
 import { db } from '@/lib/firebase';
 import { collection, addDoc, query, where, onSnapshot, serverTimestamp, deleteDoc, doc } from 'firebase/firestore';
@@ -18,8 +19,7 @@ import {
   LoaderCircle,
   PlusCircle,
   ClipboardList,
-  MessageSquare,
-  Clock,
+  ChevronRight,
 } from 'lucide-react';
 
 const API_BASE_URL =
@@ -359,286 +359,215 @@ export default function ChatInterface() {
   return (
     <div className="flex h-screen bg-slate-50 overflow-hidden font-sans antialiased">
       
-      <div className="flex-1 flex flex-col h-full bg-white">
+      <div
+        className={`fixed inset-y-0 left-0 z-50 w-[17rem] max-w-[84vw] sm:w-[18rem] lg:w-[17rem] xl:w-[17.5rem] bg-white border-r border-slate-200 shadow-2xl lg:shadow-none flex flex-col overflow-hidden transition-transform duration-300 ease-in-out ${
+          sidebarOpen ? 'translate-x-0' : '-translate-x-full'
+        } lg:translate-x-0 lg:static`}
+      >
         
-        <header className="h-16 border-b border-slate-100 px-6 flex items-center justify-between bg-white/80 backdrop-blur-md sticky top-0 z-30">
-          <div className="flex items-center space-x-4">
-            <div>
-              <h1 className="text-base font-bold text-slate-900 flex items-center gap-2">
-                Fitness Tracker
-              </h1>
-              <p className="text-xs text-slate-500 font-medium leading-none mt-1">
-                Your stats and workout dashboard
-              </p>
+        <div className="flex-1 flex flex-col min-h-0">
+          <div className="p-3.5 border-b border-slate-100 flex items-center justify-between gap-2">
+            <div className="flex items-center space-x-3 min-w-0">
+              <div className="bg-indigo-600 p-2 rounded-xl shadow-md shadow-indigo-500/20 shrink-0">
+                <Dumbbell className="w-4.5 h-4.5 text-white" />
+              </div>
+              <div className="min-w-0">
+                <span className="block text-sm font-bold tracking-tight text-slate-900 truncate">
+                  Fitness Tracker
+                </span>
+                <span className="block text-[10px] text-slate-400 truncate">
+                  Track workouts and progress
+                </span>
+              </div>
+            </div>
+            <div className="flex items-center gap-2 shrink-0">
+              <button
+                onClick={() => setSidebarOpen(false)}
+                className="lg:hidden p-1.5 rounded-lg text-slate-400 hover:bg-slate-100 hover:text-slate-600 transition"
+              >
+                <X className="w-4.5 h-4.5" />
+              </button>
             </div>
           </div>
-          <button
-            onClick={logout}
-            className="p-2 rounded-lg text-slate-500 hover:bg-slate-100 hover:text-slate-800 transition"
-          >
-            <LogOut className="w-5 h-5" />
-          </button>
-        </header>
 
-        <div className="flex-1 overflow-y-auto px-6 py-6">
-          <div className="max-w-6xl mx-auto grid grid-cols-1 lg:grid-cols-3 gap-6">
-            
-            <div className="lg:col-span-2 space-y-6">
-              <div className="rounded-2xl border border-slate-200 bg-white p-5">
-                <h2 className="text-sm font-semibold text-slate-900 mb-4 uppercase tracking-wide">
-                  QUICK STATS
-                </h2>
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-                  <div className="bg-indigo-50/70 border border-indigo-100/50 rounded-2xl p-3 flex items-center justify-between gap-2.5">
-                    <div>
-                      <p className="text-[11px] font-medium text-indigo-600/80 mb-1">
-                        Total Logged Workouts
-                      </p>
-                      <p className="text-lg font-black tracking-tight text-indigo-700 leading-none">
-                        {workoutHistory.length}
-                      </p>
-                    </div>
-                    <div className="bg-white/80 p-2 rounded-xl shadow-sm border border-slate-100 text-indigo-600 shrink-0">
-                      <Activity className="w-4.5 h-4.5" />
-                    </div>
-                  </div>
-
-                  <div className="bg-violet-50/70 border border-violet-100/50 rounded-2xl p-3 flex items-center justify-between gap-2.5">
-                    <div>
-                      <p className="text-[11px] font-medium text-violet-600/80 mb-1">
-                        This Week
-                      </p>
-                      <p className="text-lg font-black tracking-tight text-violet-700 leading-none">
-                        {weeklyWorkouts.length}
-                      </p>
-                    </div>
-                    <div className="bg-white/80 p-2 rounded-xl shadow-sm border border-slate-100 text-violet-600 shrink-0">
-                      <Calendar className="w-4.5 h-4.5" />
-                    </div>
-                  </div>
-
-                  <div className="bg-amber-50/80 border border-amber-100 rounded-2xl p-3 flex items-center justify-between gap-2.5">
-                    <div>
-                      <p className="text-[11px] font-medium text-amber-600/90 mb-1">
-                        Training Volume
-                      </p>
-                      <p className="text-lg font-black tracking-tight text-amber-700 leading-none">
-                        {totalSets}
-                      </p>
-                    </div>
-                    <div className="bg-white/80 p-2 rounded-xl shadow-sm border border-slate-100 text-amber-600 shrink-0">
-                      <Flame className="w-4.5 h-4.5" />
-                    </div>
-                  </div>
-                </div>
-              </div>
-
-              <div className="rounded-2xl border border-slate-200 bg-white p-5">
-                <h2 className="text-sm font-semibold text-slate-900 mb-4 uppercase tracking-wide">
-                  WORKOUT LOGGER
-                </h2>
-                <p className="text-xs font-medium text-slate-500 mb-4">Save a set fast</p>
-                <form onSubmit={(e) => { e.preventDefault(); logWorkout(); }} className="space-y-3">
-                  <input
-                    type="text"
-                    placeholder="Exercise name"
-                    value={workoutForm.exercise}
-                    onChange={(e) => setWorkoutForm({ ...workoutForm, exercise: e.target.value })}
-                    className="w-full px-3.5 py-2.5 text-sm border border-slate-200 rounded-lg focus:ring-2 focus:ring-indigo-600/20 focus:border-indigo-600 outline-none transition bg-slate-50/50"
-                  />
-                  <div className="grid grid-cols-3 gap-3">
-                    <input
-                      type="number"
-                      placeholder="Reps"
-                      value={workoutForm.reps}
-                      onChange={(e) => setWorkoutForm({ ...workoutForm, reps: e.target.value })}
-                      className="px-3.5 py-2.5 text-sm border border-slate-200 rounded-lg focus:ring-2 focus:ring-indigo-600/20 focus:border-indigo-600 outline-none transition bg-slate-50/50"
-                    />
-                    <input
-                      type="number"
-                      placeholder="Sets"
-                      value={workoutForm.sets}
-                      onChange={(e) => setWorkoutForm({ ...workoutForm, sets: e.target.value })}
-                      className="px-3.5 py-2.5 text-sm border border-slate-200 rounded-lg focus:ring-2 focus:ring-indigo-600/20 focus:border-indigo-600 outline-none transition bg-slate-50/50"
-                    />
-                    <input
-                      type="number"
-                      placeholder="Min"
-                      value={workoutForm.durationMinutes}
-                      onChange={(e) => setWorkoutForm({ ...workoutForm, durationMinutes: e.target.value })}
-                      className="px-3.5 py-2.5 text-sm border border-slate-200 rounded-lg focus:ring-2 focus:ring-indigo-600/20 focus:border-indigo-600 outline-none transition bg-slate-50/50"
-                    />
-                  </div>
-                  <textarea
-                    placeholder="Notes or intensity"
-                    value={workoutForm.notes}
-                    onChange={(e) => setWorkoutForm({ ...workoutForm, notes: e.target.value })}
-                    rows={2}
-                    className="w-full px-3.5 py-2.5 text-sm border border-slate-200 rounded-lg focus:ring-2 focus:ring-indigo-600/20 focus:border-indigo-600 outline-none transition bg-slate-50/50 resize-none"
-                  />
-                  <button
-                    type="submit"
-                    disabled={loggingWorkout}
-                    className="w-full py-2.5 bg-slate-900 text-white text-sm font-semibold rounded-lg hover:bg-slate-800 disabled:opacity-40 transition flex items-center justify-center gap-2"
-                  >
-                    <Clock className="w-4 h-4" />
-                    Log Workout
-                  </button>
-                </form>
-              </div>
-
-              <div className="rounded-2xl border border-slate-200 bg-white p-5">
-                <div className="flex items-center justify-between mb-4">
-                  <h3 className="text-sm font-semibold text-slate-900">Recent Workouts</h3>
-                  <span className="text-[11px] font-medium text-slate-400">
-                    {totalSets} sets · {totalDuration} min
-                  </span>
-                </div>
-                {workoutHistory.length === 0 ? (
-                  <p className="text-xs text-slate-500 leading-relaxed">
-                    Log your first workout to see totals, recent sets, and weekly activity here.
+          
+          <div className="px-3.5 pt-3.5 pb-2">
+            <Link href="/stats">
+              <button className="w-full flex items-center justify-between p-4 bg-gradient-to-r from-indigo-50 to-violet-50 border border-indigo-100/50 rounded-2xl hover:from-indigo-100 hover:to-violet-100 transition group">
+                <div className="text-left">
+                  <p className="text-[10px] font-bold text-slate-400 uppercase tracking-[0.22em] mb-1">
+                    Quick Stats
                   </p>
-                ) : (
-                  <div className="space-y-2.5">
-                    {workoutHistory.reverse().map((workout, index) => (
-                      <div
-                        key={`${workout.timestamp}-${index}`}
-                        className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5"
-                      >
-                        <div className="flex items-center justify-between gap-3">
-                          <p className="text-xs font-semibold text-slate-900 truncate">
-                            {workout.exercise}
-                          </p>
-                          <p className="text-[11px] text-slate-400 flex-shrink-0">
-                            {new Date(workout.timestamp).toLocaleDateString([], {
-                              month: 'short',
-                              day: 'numeric',
-                            })}
-                          </p>
-                        </div>
-                        <p className="text-xs text-slate-500 mt-1">
-                          {workout.sets || 1} x {workout.reps} reps
-                          {workout.duration_minutes ? ` · ${workout.duration_minutes} min` : ''}
-                        </p>
-                        {workout.notes && (
-                          <p className="text-xs text-slate-500 mt-1 line-clamp-2">
-                            {workout.notes}
-                          </p>
-                        )}
-                        <div className="flex gap-2 mt-2.5">
-                          <button
-                            onClick={() => setDeleteModal({ open: true, workoutId: workout.id })}
-                            className="flex-1 px-2 py-1.5 text-[11px] font-medium bg-red-50 text-red-600 rounded-lg hover:bg-red-100 transition"
-                          >
-                            Delete
-                          </button>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                )}
+                  <p className="text-xs font-semibold text-slate-700 group-hover:text-slate-900 transition">
+                    View your stats
+                  </p>
+                </div>
+                <ChevronRight className="w-5 h-5 text-indigo-600 group-hover:translate-x-1 transition-transform" />
+              </button>
+            </Link>
+          </div>
+
+          <div className="px-3.5 pt-3.5 pb-3 space-y-3 min-h-0 flex-1 overflow-hidden">
+            <div className="rounded-2xl border border-slate-200 bg-slate-50/80 p-3.5 space-y-3">
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="text-[10px] font-bold uppercase tracking-[0.22em] text-slate-400">
+                    Workout Logger
+                  </p>
+                  <h3 className="text-xs font-semibold text-slate-900 mt-1">
+                    Save a set fast
+                  </h3>
+                </div>
+                <div className="bg-white rounded-xl border border-slate-200 p-2 text-slate-500">
+                  <ClipboardList className="w-3.5 h-3.5" />
+                </div>
+              </div>
+
+              <div className="space-y-2.5">
+                <input
+                  value={workoutForm.exercise}
+                  onChange={(e) => setWorkoutForm((current) => ({ ...current, exercise: e.target.value }))}
+                  placeholder="Exercise name"
+                  className="w-full px-3 py-2.5 rounded-xl border border-slate-200 bg-white text-sm text-slate-900 placeholder-slate-500 caret-slate-900 outline-none focus:ring-2 focus:ring-indigo-600/20 focus:border-indigo-600"
+                />
+                <div className="grid grid-cols-3 gap-2">
+                  <input
+                    value={workoutForm.reps}
+                    onChange={(e) => setWorkoutForm((current) => ({ ...current, reps: e.target.value }))}
+                    placeholder="Reps"
+                    inputMode="numeric"
+                    className="w-full px-3 py-2.5 rounded-xl border border-slate-200 bg-white text-sm text-slate-900 placeholder-slate-500 caret-slate-900 outline-none focus:ring-2 focus:ring-indigo-600/20 focus:border-indigo-600"
+                  />
+                  <input
+                    value={workoutForm.sets}
+                    onChange={(e) => setWorkoutForm((current) => ({ ...current, sets: e.target.value }))}
+                    placeholder="Sets"
+                    inputMode="numeric"
+                    className="w-full px-3 py-2.5 rounded-xl border border-slate-200 bg-white text-sm text-slate-900 placeholder-slate-500 caret-slate-900 outline-none focus:ring-2 focus:ring-indigo-600/20 focus:border-indigo-600"
+                  />
+                  <input
+                    value={workoutForm.durationMinutes}
+                    onChange={(e) => setWorkoutForm((current) => ({ ...current, durationMinutes: e.target.value }))}
+                    placeholder="Min"
+                    inputMode="numeric"
+                    className="w-full px-3 py-2.5 rounded-xl border border-slate-200 bg-white text-sm text-slate-900 placeholder-slate-500 caret-slate-900 outline-none focus:ring-2 focus:ring-indigo-600/20 focus:border-indigo-600"
+                  />
+                </div>
+                <textarea
+                  value={workoutForm.notes}
+                  onChange={(e) => setWorkoutForm((current) => ({ ...current, notes: e.target.value }))}
+                  placeholder="Notes or intensity"
+                  rows={2}
+                  className="w-full px-3 py-2.5 rounded-xl border border-slate-200 bg-white text-sm text-slate-900 placeholder-slate-500 caret-slate-900 outline-none focus:ring-2 focus:ring-indigo-600/20 focus:border-indigo-600 resize-none"
+                />
+                <button
+                  onClick={logWorkout}
+                  disabled={loggingWorkout}
+                  className="w-full inline-flex items-center justify-center gap-2 rounded-xl bg-slate-900 px-4 py-3 text-sm font-semibold text-white hover:bg-slate-800 disabled:opacity-50 disabled:cursor-not-allowed transition"
+                >
+                  {loggingWorkout ? (
+                    <span className="inline-flex items-center gap-2">
+                      <LoaderCircle className="w-4 h-4 animate-spin" />
+                      Saving
+                    </span>
+                  ) : (
+                    <span className="inline-flex items-center gap-2">
+                      <PlusCircle className="w-4 h-4" />
+                      Log Workout
+                    </span>
+                  )}
+                </button>
               </div>
             </div>
 
-            <div className="lg:col-span-1">
-              <div
-                className={`fixed inset-y-0 right-0 z-50 w-[17rem] max-w-[84vw] sm:w-[18rem] lg:w-auto lg:static bg-white border-l border-slate-200 shadow-2xl lg:shadow-none flex flex-col overflow-hidden transition-transform duration-300 ease-in-out ${
-                  sidebarOpen ? 'translate-x-0' : 'translate-x-full'
-                } lg:translate-x-0`}
-              >
-                <div className="flex-1 flex flex-col min-h-0">
-                  <div className="p-3.5 border-b border-slate-100 flex items-center justify-between gap-2">
-                    <div className="flex items-center space-x-3 min-w-0">
-                      <div className="bg-indigo-600 p-2 rounded-xl shadow-md shadow-indigo-500/20 shrink-0">
-                        <MessageSquare className="w-4.5 h-4.5 text-white" />
-                      </div>
-                      <div className="min-w-0 flex-1">
-                        <p className="text-sm font-semibold text-slate-900 truncate">
-                          Chat Coach
+            <div className="rounded-2xl border border-slate-200 bg-white p-3.5 flex flex-col min-h-0">
+              <div className="flex items-center justify-between mb-3">
+                <h3 className="text-sm font-semibold text-slate-900">Recent Workouts</h3>
+                <span className="text-[11px] font-medium text-slate-400">
+                  {totalSets} sets · {totalDuration} min
+                </span>
+              </div>
+              {workoutHistory.length === 0 ? (
+                <p className="text-xs text-slate-500 leading-relaxed">
+                  Log your first workout to see totals, recent sets, and weekly activity here.
+                </p>
+              ) : (
+                <div 
+                  className="space-y-2.5 overflow-y-auto pr-2" 
+                  style={{ 
+                    maxHeight: '280px',
+                    scrollbarWidth: 'thin',
+                    scrollbarColor: '#cbd5e1 transparent'
+                  }}
+                >
+                  {workoutHistory.reverse().map((workout, index) => (
+                    <div
+                      key={`${workout.timestamp}-${index}`}
+                      className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5"
+                    >
+                      <div className="flex items-center justify-between gap-3">
+                        <p className="text-xs font-semibold text-slate-900 truncate">
+                          {workout.exercise}
+                        </p>
+                        <p className="text-[11px] text-slate-400 flex-shrink-0">
+                          {new Date(workout.timestamp).toLocaleDateString([], {
+                            month: 'short',
+                            day: 'numeric',
+                          })}
                         </p>
                       </div>
-                    </div>
-                    <button
-                      onClick={() => setSidebarOpen(false)}
-                      className="lg:hidden p-1 rounded-lg text-slate-400 hover:bg-slate-100 hover:text-slate-600 transition"
-                    >
-                      <X className="w-4 h-4" />
-                    </button>
-                  </div>
-
-                  <div className="flex-1 overflow-y-auto flex flex-col min-h-0">
-                    {messages.map((msg) => (
-                      <div
-                        key={msg.id}
-                        className={`px-3.5 py-2.5 flex ${
-                          msg.role === 'user' ? 'justify-end' : 'justify-start'
-                        }`}
-                      >
-                        <div
-                          className={`max-w-xs px-3.5 py-2.5 rounded-xl text-xs leading-relaxed whitespace-pre-wrap ${
-                            msg.role === 'user'
-                              ? 'bg-indigo-600 text-white'
-                              : 'bg-slate-100 text-slate-800'
-                          }`}
+                      <p className="text-xs text-slate-500 mt-1">
+                        {workout.sets || 1} x {workout.reps} reps
+                        {workout.duration_minutes ? ` · ${workout.duration_minutes} min` : ''}
+                      </p>
+                      {workout.notes && (
+                        <p className="text-xs text-slate-500 mt-1 line-clamp-2">
+                          {workout.notes}
+                        </p>
+                      )}
+                      <div className="flex gap-2 mt-2.5">
+                        <button
+                          onClick={() => setDeleteModal({ open: true, workoutId: workout.id })}
+                          className="flex-1 px-2 py-1.5 text-[11px] font-medium bg-red-50 text-red-600 rounded-lg hover:bg-red-100 transition"
                         >
-                          {msg.content}
-                        </div>
+                          Delete
+                        </button>
                       </div>
-                    ))}
-                    {loading && (
-                      <div className="px-3.5 py-2.5 flex justify-start">
-                        <div className="flex space-x-1.5 bg-slate-100 px-3.5 py-2.5 rounded-xl">
-                          <span
-                            className="w-2 h-2 bg-slate-400 rounded-full animate-bounce"
-                            style={{ animationDelay: '0s' }}
-                          />
-                          <span
-                            className="w-2 h-2 bg-slate-400 rounded-full animate-bounce"
-                            style={{ animationDelay: '0.1s' }}
-                          />
-                          <span
-                            className="w-2 h-2 bg-slate-400 rounded-full animate-bounce"
-                            style={{ animationDelay: '0.2s' }}
-                          />
-                        </div>
-                      </div>
-                    )}
-                    <div ref={messagesEndRef} />
-                  </div>
-
-                  <div className="border-t border-slate-100 p-3 space-y-2.5">
-                    <textarea
-                      value={input}
-                      onChange={(e) => setInput(e.target.value)}
-                      onKeyDown={(e) => {
-                        if (e.key === 'Enter' && !e.shiftKey) {
-                          e.preventDefault();
-                          if (!loading && input.trim()) {
-                            sendMessage();
-                          }
-                        }
-                      }}
-                      placeholder="Ask coach..."
-                      rows={2}
-                      disabled={loading}
-                      className="w-full px-3 py-2 border border-slate-200 bg-slate-50/60 text-slate-800 rounded-lg placeholder-slate-400 focus:ring-2 focus:ring-indigo-600/20 focus:border-indigo-600 resize-none outline-none text-xs transition"
-                    />
-                    <button
-                      onClick={sendMessage}
-                      disabled={loading || !input.trim()}
-                      className="w-full bg-indigo-600 text-white px-3 py-2 rounded-lg hover:bg-indigo-700 disabled:opacity-40 disabled:cursor-not-allowed transition text-xs font-medium flex items-center justify-center gap-2"
-                    >
-                      <Send className="w-3.5 h-3.5" />
-                      Send
-                    </button>
-                  </div>
+                    </div>
+                  ))}
                 </div>
-              </div>
+              )}
             </div>
           </div>
         </div>
+
+        <div className="p-3.5 border-t border-slate-100 bg-slate-50/50 space-y-3.5 shrink-0">
+          
+          <div className="flex items-center space-x-3 p-3 bg-white border border-slate-200/80 rounded-xl shadow-sm">
+            <div className="bg-gradient-to-br from-indigo-500 to-violet-600 p-2.5 rounded-xl shadow-sm">
+              <User className="w-4 h-4 text-white" />
+            </div>
+            <div className="flex-1 min-w-0">
+              <p className="text-xs font-bold text-slate-900 truncate">
+                {user?.email?.split('@')[0] || 'User'}
+              </p>
+              <p className="text-[10px] text-slate-400 truncate mt-0.5">
+                {user?.email || 'test@gmail.com'}
+              </p>
+            </div>
+          </div>
+
+          <button
+            onClick={logout}
+            className="w-full inline-flex items-center justify-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-xs font-semibold text-slate-700 hover:bg-red-50 hover:text-red-600 hover:border-red-100 transition"
+          >
+            <LogOut className="w-4 h-4" />
+            <span>Logout</span>
+          </button>
+        </div>
       </div>
 
+      
       {sidebarOpen && (
         <div
           className="fixed inset-0 bg-slate-900/40 backdrop-blur-sm z-40 lg:hidden"
@@ -646,30 +575,171 @@ export default function ChatInterface() {
         />
       )}
 
-      {deleteModal.open && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-2xl shadow-xl p-6 max-w-sm w-full">
-            <h3 className="text-lg font-semibold text-slate-900 mb-2">Delete Workout?</h3>
-            <p className="text-sm text-slate-600 mb-6">
-              Are you sure you want to delete this workout? This action cannot be undone.
-            </p>
-            <div className="flex gap-3">
-              <button
-                onClick={() => setDeleteModal({ open: false, workoutId: null })}
-                className="flex-1 px-4 py-2.5 text-sm font-medium text-slate-700 bg-slate-100 rounded-lg hover:bg-slate-200 transition"
-              >
-                Cancel
-              </button>
-              <button
-                onClick={() => deleteWorkout(deleteModal.workoutId)}
-                className="flex-1 px-4 py-2.5 text-sm font-medium text-white bg-red-600 rounded-lg hover:bg-red-700 transition"
-              >
-                Delete
-              </button>
+      <div className="flex-1 flex flex-col h-full bg-white">
+        
+        <header className="h-16 border-b border-slate-100 px-6 flex items-center justify-between bg-white/80 backdrop-blur-md sticky top-0 z-30">
+          <div className="flex items-center space-x-4">
+            <button
+              onClick={() => setSidebarOpen(true)}
+              className="lg:hidden p-2 rounded-lg text-slate-500 hover:bg-slate-100 hover:text-slate-800 transition"
+            >
+              <Menu className="w-5 h-5" />
+            </button>
+            <div className="flex items-center space-x-2">
+              <div>
+                <h1 className="text-base font-bold text-slate-900 flex items-center gap-2">
+                  AI Fitness Coach
+                  
+                </h1>
+                <p className="text-xs text-slate-500 font-medium leading-none mt-1">
+                  Ask about workouts, meals, recovery, or training plans
+                </p>
+              </div>
             </div>
           </div>
+
+        </header>
+
+        
+        <div className="flex-1 overflow-y-auto px-6 py-8">
+          <div className="max-w-3xl mx-auto space-y-6">
+            {messages.length === 0 && (
+              <div className="text-center py-16">
+                <div className="inline-flex items-center justify-center w-16 h-16 bg-indigo-50 border border-indigo-100 rounded-2xl mb-6 shadow-sm">
+                  <Dumbbell className="w-7 h-7 text-indigo-600" />
+                </div>
+                <h2 className="text-2xl font-black text-slate-900 mb-2">
+                  Welcome to Your Fitness Journey
+                </h2>
+                <p className="text-slate-500 max-w-md mx-auto mb-10">
+                  I can log training, estimate calories, build plans, and keep
+                  a running history of your progress.
+                </p>
+
+                
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-3 max-w-2xl mx-auto">
+                  {suggestions.map((suggestion, index) => (
+                    <button
+                      key={index}
+                      onClick={() => setInput(suggestion)}
+                      className="text-left p-4 bg-slate-50/80 hover:bg-white border border-slate-200/80 hover:border-indigo-500 rounded-xl hover:shadow-md transition-all duration-200 group flex items-center justify-between"
+                    >
+                      <p className="text-xs font-medium text-slate-700 group-hover:text-indigo-900">
+                        {suggestion}
+                      </p>
+                      <span className="text-indigo-300 group-hover:text-indigo-500 text-xs transition">
+                        &rarr;
+                      </span>
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            
+            {messages.map((msg) => (
+              <div
+                key={msg.id}
+                className={`flex ${
+                  msg.role === 'user' ? 'justify-end' : 'justify-start'
+                }`}
+              >
+                <div
+                  className={`max-w-xl px-5 py-3.5 rounded-2xl shadow-sm text-sm leading-relaxed whitespace-pre-wrap ${
+                    msg.role === 'user'
+                      ? 'bg-indigo-600 text-white font-medium shadow-indigo-500/10'
+                      : 'bg-slate-50 text-slate-800 border border-slate-200/60'
+                  }`}
+                >
+                  {msg.content}
+                </div>
+              </div>
+            ))}
+
+            
+            {loading && (
+              <div className="flex justify-start">
+                <div className="bg-slate-50 border border-slate-200/60 px-5 py-4 rounded-2xl shadow-sm">
+                  <div className="flex space-x-1.5 items-center">
+                    <span className="w-2 h-2 bg-slate-400 rounded-full animate-bounce" />
+                    <span
+                      className="w-2 h-2 bg-slate-400 rounded-full animate-bounce"
+                      style={{ animationDelay: '0.1s' }}
+                    />
+                    <span
+                      className="w-2 h-2 bg-slate-400 rounded-full animate-bounce"
+                      style={{ animationDelay: '0.2s' }}
+                    />
+                  </div>
+                </div>
+              </div>
+            )}
+            <div ref={messagesEndRef} />
+          </div>
         </div>
-      )}
+
+        
+        <div className="bg-white border-t border-slate-100 px-6 py-5">
+          <div className="max-w-3xl mx-auto">
+            <div className="flex items-end space-x-3">
+              <div className="flex-1 relative">
+                <textarea
+                  value={input}
+                  onChange={(e) => setInput(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter' && !e.shiftKey) {
+                      e.preventDefault();
+                      if (!loading && input.trim()) {
+                        sendMessage();
+                      }
+                    }
+                  }}
+                  placeholder="Ask about your regimen, diet, or workouts..."
+                  rows={1}
+                  style={{ maxHeight: '120px' }}
+                  disabled={loading}
+                  className="w-full px-4 py-3.5 pr-4 border border-slate-200 bg-slate-50/60 text-slate-800 rounded-xl placeholder-slate-400 focus:ring-2 focus:ring-indigo-600/20 focus:border-indigo-600 resize-none outline-none text-sm transition"
+                />
+              </div>
+              <button
+                onClick={sendMessage}
+                disabled={loading || !input.trim()}
+                className="bg-indigo-600 text-white p-3.5 rounded-xl hover:bg-indigo-700 disabled:opacity-40 disabled:cursor-not-allowed transition duration-200 shadow-md shadow-indigo-600/10 group flex items-center justify-center flex-shrink-0"
+              >
+                <Send className="w-4 h-4 group-hover:translate-x-0.5 group-hover:-translate-y-0.5 transition-transform" />
+              </button>
+            </div>
+            <p className="text-[10px] text-slate-400 mt-2 text-center select-none">
+              Press Enter to send, Shift + Enter for a new line.
+            </p>
+          </div>
+        </div>
+
+        {deleteModal.open && (
+          <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+            <div className="bg-white rounded-2xl shadow-xl p-6 max-w-sm w-full">
+              <h3 className="text-lg font-semibold text-slate-900 mb-2">Delete Workout?</h3>
+              <p className="text-sm text-slate-600 mb-6">
+                Are you sure you want to delete this workout? This action cannot be undone.
+              </p>
+              <div className="flex gap-3">
+                <button
+                  onClick={() => setDeleteModal({ open: false, workoutId: null })}
+                  className="flex-1 px-4 py-2.5 text-sm font-medium text-slate-700 bg-slate-100 rounded-lg hover:bg-slate-200 transition"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={() => deleteWorkout(deleteModal.workoutId)}
+                  className="flex-1 px-4 py-2.5 text-sm font-medium text-white bg-red-600 rounded-lg hover:bg-red-700 transition"
+                >
+                  Delete
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+      </div>
     </div>
   );
 }
