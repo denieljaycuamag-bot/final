@@ -1,3 +1,4 @@
+import type { ReactNode } from 'react'
 import './globals.css'
 import { AuthProvider } from '@/lib/AuthContext'
 
@@ -6,7 +7,11 @@ export const metadata = {
   description: 'AI-powered fitness tracking chatbot',
 }
 
-export default function RootLayout({ children }) {
+type RootLayoutProps = {
+  children: ReactNode
+}
+
+export default function RootLayout({ children }: RootLayoutProps) {
   return (
     <html lang="en">
       <body>
