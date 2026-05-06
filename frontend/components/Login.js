@@ -100,8 +100,7 @@ export default function Login() {
                 {isLogin ? 'Sign in to continue your fitness journey' : 'Start your fitness journey today'}
               </p>
             </div>
-
-            
+        
             {error && (
               <div className="mb-6 p-4 bg-red-50 border-l-4 border-red-500 rounded-r-lg">
                 <p className="text-red-700 text-sm">{error}</p>
@@ -128,8 +127,7 @@ export default function Login() {
                   />
                 </div>
               </div>
-
-              
+  
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-2">
                   Password
@@ -159,7 +157,6 @@ export default function Login() {
                 </div>
               </div>
 
-              
               <button
                 type="submit"
                 disabled={loading}
@@ -176,7 +173,6 @@ export default function Login() {
               </button>
             </form>
 
-            
             <div className="mt-6 text-center">
               <button
                 onClick={() => {
