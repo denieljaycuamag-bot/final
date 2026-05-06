@@ -7,16 +7,20 @@ from dotenv import load_dotenv
 import logging
 from typing import Dict, List, Optional
 from datetime import datetime
-
-# Setup logging
+import re
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
+
+
+def contains_cjk(text: str) -> bool:
+    """Return True if text contains CJK (Chinese/Japanese/Korean) characters."""
+    if not text:
+        return False
+    return bool(re.search(r"[\u4E00-\u9FFF\u3400-\u4DBF\uF900-\uFAFF\u3000-\u303F]", text))
 
 load_dotenv()
 
 app = FastAPI()
-
-# CORS setup
 allowed_origins = os.getenv("CORS_ORIGINS", "http://localhost:3000").split(",")
 app.add_middleware(
     CORSMiddleware,
@@ -29,9 +33,11 @@ app.add_middleware(
 OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY")
 OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions"
 
-# List of fallback models to try
 AI_MODELS = [
+    "openrouter/auto",
     "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free",
+    "openrouter/free-3.5-turbo:free",
+    "openrouter/free",
     "cognitivecomputations/dolphin-mistral-24b-venice-edition:free",
     "meta-llama/llama-3.1-8b-instruct:free",
     "google/gemini-flash-1.5:free"
@@ -62,13 +68,11 @@ async def root():
 
 @app.post("/api/chat")
 async def chat(data: ChatMessage):
-    """Send message to OpenRouter AI with fallback models"""
-    
+
     if not OPENROUTER_API_KEY:
         logger.error("OpenRouter API key not configured")
         raise HTTPException(status_code=500, detail="OpenRouter API key not configured")
-    
-    # Enhanced fitness coach prompt
+
     system_prompt = """You are an enthusiastic and knowledgeable AI fitness coach named FitBot. Your role is to:
 
 1. Help users log their workouts in a friendly way
@@ -78,21 +82,25 @@ async def chat(data: ChatMessage):
 5. Create simple workout plans
 6. Calculate approximate calories burned
 
-When users mention exercises, acknowledge them positively and provide useful feedback.
-Keep responses concise (2-4 sentences), friendly, and actionable.
-Use a supportive, energetic tone without being overwhelming.
+Important language rules:
+- Always reply only in Cebuano (Bisaya) or English. Do NOT reply in Chinese or any other language.
+- If the user writes in a different language, respond in English or Bisaya (prefer the user's language if it's English or Bisaya).
+
+Response tone and format:
+- Keep responses concise (2-4 sentences), friendly, and actionable.
+- Use a supportive, energetic tone without being overwhelming.
+- End every response with the signature: — Deniel Cuamag
 
 Examples:
 User: "I did 20 pushups"
-You: "Great work! 20 pushups is solid. That burned approximately 30-40 calories. Keep building that upper body strength!"
+You: "Great work! 20 pushups is solid. That burned approximately 30-40 calories. Keep building that upper body strength! — Deniel Cuamag"
 
 User: "Give me a workout plan"
-You: "I'd love to help! What's your main goal - building muscle, losing weight, or general fitness? And how many days per week can you commit?"
+You: "I'd love to help! What's your main goal - building muscle, losing weight, or general fitness? And how many days per week can you commit? — Deniel Cuamag"
 """
     
     last_error = None
-    
-    # Try each model until one works
+  
     for model in AI_MODELS:
         try:
             logger.info(f"Trying model: {model}")
@@ -103,13 +111,10 @@ You: "I'd love to help! What's your main goal - building muscle, losing weight, 
                 "HTTP-Referer": "http://localhost:3000",
                 "X-Title": "Fitness Tracker"
             }
-            
-            # Attach recent workout history as additional system context so the
-            # AI can reference what the user logged.
+
             history = workout_history.get(data.user_id, [])
             context_lines = []
             if history:
-                # include up to the last 6 entries
                 for e in history[-6:]:
                     parts = []
                     if e.get("exercise"):
@@ -130,12 +135,12 @@ You: "I'd love to help! What's your main goal - building muscle, losing weight, 
                 context_prompt = "Recent workouts:\n" + "\n".join(context_lines)
 
             messages_for_model = []
-            # primary system prompt
+       
             messages_for_model.append({"role": "system", "content": system_prompt})
-            # add workout context if present
+           
             if context_prompt:
                 messages_for_model.append({"role": "system", "content": context_prompt})
-            # finally the user's message
+            
             messages_for_model.append({"role": "user", "content": data.message})
 
             payload = {
@@ -155,9 +160,63 @@ You: "I'd love to help! What's your main goal - building muscle, losing weight, 
                 if response.status_code == 200:
                     result = response.json()
                     ai_message = result["choices"][0]["message"]["content"]
-                    
+
+                    ai_message = ai_message.strip()
+                    if "Deniel Cuamag" not in ai_message:
+                        ai_message = ai_message + "\n\n— Deniel Cuamag"
+                    # If the model reply contains CJK characters, ask the model once
+                    # to provide the same content translated into English or Bisaya.
+                    if contains_cjk(ai_message):
+                        try:
+                            translate_instructions = (
+                                "The previous assistant reply contained characters from Chinese/Japanese/Korean scripts. "
+                                "Provide the same content translated into English or Cebuano (Bisaya) ONLY. "
+                                "Do NOT include any Chinese, Japanese, or Korean characters. "
+                                "Keep the response concise and end with the signature: — Deniel Cuamag"
+                            )
+
+                            translate_messages = [
+                                {"role": "system", "content": system_prompt + "\n\n" + translate_instructions},
+                                {"role": "user", "content": f"Please translate the following assistant reply into English or Bisaya only:\n\n{ai_message}"},
+                            ]
+
+                            translate_payload = {
+                                "model": model,
+                                "messages": translate_messages,
+                                "temperature": 0.3,
+                                "max_tokens": 500,
+                            }
+
+                            response2 = await client.post(OPENROUTER_URL, headers=headers, json=translate_payload)
+                            if response2.status_code == 200:
+                                result2 = response2.json()
+                                ai_message_2 = result2["choices"][0]["message"]["content"].strip()
+                                if "Deniel Cuamag" not in ai_message_2:
+                                    ai_message_2 = ai_message_2 + "\n\n— Deniel Cuamag"
+
+                                # If translation still contains CJK, fall back to a canned English message
+                                if contains_cjk(ai_message_2):
+                                    ai_message = (
+                                        "Sorry, I couldn't translate the assistant reply right now. "
+                                        "Please try again. — Deniel Cuamag"
+                                    )
+                                else:
+                                    ai_message = ai_message_2
+                            else:
+                                logger.warning(f"Translation request failed with status {response2.status_code}")
+                                ai_message = (
+                                    "Sorry, I couldn't translate the assistant reply right now. "
+                                    "Please try again. — Deniel Cuamag"
+                                )
+                        except Exception as ex:
+                            logger.error(f"Translation retry error: {ex}")
+                            ai_message = (
+                                "Sorry, I couldn't translate the assistant reply right now. "
+                                "Please try again. — Deniel Cuamag"
+                            )
+
                     logger.info(f"Success with model: {model}")
-                    
+
                     return {
                         "response": ai_message,
                         "user_id": data.user_id,
@@ -173,7 +232,6 @@ You: "I'd love to help! What's your main goal - building muscle, losing weight, 
             last_error = str(e)
             continue
     
-    # If all models fail
     logger.error(f"All models failed. Last error: {last_error}")
     raise HTTPException(
         status_code=500, 
