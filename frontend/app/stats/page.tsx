@@ -7,11 +7,20 @@ import { collection, query, where, onSnapshot, serverTimestamp } from 'firebase/
 import QuickStats from '@/components/QuickStats';
 import { ArrowLeft } from 'lucide-react';
 
+interface Workout {
+  id: string;
+  sets: number;
+  reps: number;
+  duration_minutes: number;
+  timestamp: number;
+  [key: string]: any;
+}
+
 export default function StatsPage() {
   const { user, logout } = useAuth();
   const router = useRouter();
   const [currentTime] = useState(() => Date.now());
-  const [workoutHistory, setWorkoutHistory] = useState([]);
+  const [workoutHistory, setWorkoutHistory] = useState<Workout[]>([]);
 
   useEffect(() => {
     if (!user) {
