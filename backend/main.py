@@ -230,8 +230,45 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY")
+def load_openrouter_api_keys() -> List[str]:
+    """Load the primary OpenRouter key plus optional backup keys."""
+    raw_keys = []
+
+    primary_key = os.getenv("OPENROUTER_API_KEY", "").strip()
+    if primary_key:
+        raw_keys.append(primary_key)
+
+    extra_keys = os.getenv("OPENROUTER_API_KEYS", "")
+    if extra_keys.strip():
+        raw_keys.extend(
+            key.strip()
+            for key in re.split(r"[;,\n]+", extra_keys)
+            if key.strip()
+        )
+
+    deduped_keys = []
+    for key in raw_keys:
+        if key not in deduped_keys:
+            deduped_keys.append(key)
+
+    return deduped_keys
+
+
+def build_openrouter_headers(api_key: str) -> dict:
+    """Build request headers for a single OpenRouter API key."""
+    return {
+        "Authorization": f"Bearer {api_key}",
+        "Content-Type": "application/json",
+        "HTTP-Referer": "http://localhost:3000",
+        "X-Title": "Fitness Tracker",
+    }
+
+
+OPENROUTER_API_KEYS = load_openrouter_api_keys()
+OPENROUTER_API_KEY = OPENROUTER_API_KEYS[0] if OPENROUTER_API_KEYS else None
 OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions"
+OPENROUTER_REQUEST_TIMEOUT_SECONDS = float(os.getenv("OPENROUTER_REQUEST_TIMEOUT_SECONDS", "8"))
+RETRYABLE_OPENROUTER_STATUS_CODES = {401, 403, 408, 425, 429, 500, 502, 503, 504}
 
 # Model pool - prioritized by general speed and availability
 AI_MODELS = [
@@ -274,53 +311,69 @@ workout_history: Dict[str, List[dict]] = {}
 async def try_model(
     model: str,
     messages: List[dict],
-    headers: dict,
+    api_keys: List[str],
     timeout: float = 10.0
 ) -> Optional[tuple]:
     """
     Try a single model and return (success, response, time) or None
     """
-    start_time = time.time()
-    
-    try:
-        payload = {
-            "model": model,
-            "messages": messages,
-            "temperature": 0.7,
-            "max_tokens": 500,
-        }
-        
-        async with httpx.AsyncClient(timeout=timeout) as client:
-            response = await client.post(
-                OPENROUTER_URL,
-                headers=headers,
-                json=payload
-            )
-            
+    if not api_keys:
+        return None
+
+    for key_index, api_key in enumerate(api_keys, start=1):
+        start_time = time.time()
+
+        try:
+            payload = {
+                "model": model,
+                "messages": messages,
+                "temperature": 0.7,
+                "max_tokens": 500,
+            }
+
+            async with httpx.AsyncClient(timeout=timeout) as client:
+                response = await client.post(
+                    OPENROUTER_URL,
+                    headers=build_openrouter_headers(api_key),
+                    json=payload
+                )
+
             elapsed = time.time() - start_time
-            
+
             if response.status_code == 200:
                 result = response.json()
                 ai_message = result["choices"][0]["message"]["content"]
-                
+
                 # Quick validation
                 if ai_message and len(ai_message.strip()) > 0:
+                    if key_index > 1:
+                        logger.info(f"Model {model} succeeded with backup API key #{key_index}")
                     return (True, ai_message.strip(), elapsed, model)
-            
+
+            if response.status_code in RETRYABLE_OPENROUTER_STATUS_CODES:
+                logger.warning(
+                    f"Model {model} returned retryable status {response.status_code} on API key #{key_index}"
+                )
+                continue
+
             logger.warning(f"Model {model} returned status {response.status_code}")
             return None
-            
-    except asyncio.TimeoutError:
-        logger.warning(f"Model {model} timed out after {timeout}s")
-        return None
-    except Exception as e:
-        logger.error(f"Model {model} error: {str(e)}")
-        return None
+
+        except asyncio.TimeoutError:
+            logger.warning(f"Model {model} timed out after {timeout}s on API key #{key_index}")
+            if key_index < len(api_keys):
+                continue
+            return None
+        except Exception as e:
+            logger.error(f"Model {model} error on API key #{key_index}: {str(e)}")
+            if key_index < len(api_keys):
+                continue
+            return None
 
 
 async def get_fastest_response(
     messages: List[dict],
-    headers: dict,
+    api_keys: List[str],
     max_parallel: int = 3
 ) -> tuple:
     """
@@ -334,10 +387,10 @@ async def get_fastest_response(
     first_batch = sorted_models[:max_parallel]
     remaining_models = sorted_models[max_parallel:]
     
-    logger.info(f"Racing models: {first_batch}")
+    logger.info(f"Racing models: {first_batch} across {len(api_keys)} API key(s)")
     
     # Create parallel tasks for first batch
-    tasks = [asyncio.create_task(try_model(model, messages, headers)) for model in first_batch]
+    tasks = [asyncio.create_task(try_model(model, messages, api_keys, timeout=OPENROUTER_REQUEST_TIMEOUT_SECONDS)) for model in first_batch]
     
     # Wait for first successful response
     done, pending = await asyncio.wait(
@@ -362,7 +415,7 @@ async def get_fastest_response(
     logger.info("First batch failed, trying remaining models...")
     
     for model in remaining_models:
-        result = await try_model(model, messages, headers, timeout=15.0)
+        result = await try_model(model, messages, api_keys, timeout=OPENROUTER_REQUEST_TIMEOUT_SECONDS)
         if result:
             success, response, elapsed, model = result
             performance_tracker.record_success(model, elapsed)
@@ -386,7 +439,7 @@ async def root():
 
 @app.post("/api/chat")
 async def chat(data: ChatMessage):
-    if not OPENROUTER_API_KEY:
+    if not OPENROUTER_API_KEYS:
         logger.error("OpenRouter API key not configured")
         raise HTTPException(status_code=500, detail="OpenRouter API key not configured")
 
@@ -506,7 +559,6 @@ Creator and purpose rule:
     if creator_prompt:
         system_prompt = system_prompt + "\n\n" + creator_prompt
 
-    # Build workout history context
     history = workout_history.get(data.user_id, [])
     context_lines = []
     if history:
@@ -536,18 +588,10 @@ Creator and purpose rule:
         messages_for_model.append({"role": "system", "content": context_prompt})
     messages_for_model.append({"role": "user", "content": data.message})
 
-    # Prepare headers
-    headers = {
-        "Authorization": f"Bearer {OPENROUTER_API_KEY}",
-        "Content-Type": "application/json",
-        "HTTP-Referer": "http://localhost:3000",
-        "X-Title": "Fitness Tracker"
-    }
-
     # Get fastest response using parallel racing
     success, ai_message, response_time, model_used = await get_fastest_response(
         messages_for_model,
-        headers,
+        OPENROUTER_API_KEYS,
         max_parallel=3  # Race 3 models at once
     )
 
@@ -575,25 +619,41 @@ Creator and purpose rule:
                 {"role": "user", "content": f"Please translate the following assistant reply into English or Bisaya only:\n\n{ai_message}"},
             ]
 
-            async with httpx.AsyncClient(timeout=15.0) as client:
-                translate_payload = {
-                    "model": model_used,
-                    "messages": translate_messages,
-                    "temperature": 0.3,
-                    "max_tokens": 500,
-                }
-                response2 = await client.post(OPENROUTER_URL, headers=headers, json=translate_payload)
-                
-                if response2.status_code == 200:
-                    result2 = response2.json()
-                    ai_message_2 = result2["choices"][0]["message"]["content"].strip()
-                    
-                    if not contains_cjk(ai_message_2):
-                        ai_message = sanitize_ai_response(ai_message_2)
-                    else:
-                        ai_message = "Sorry, I couldn't translate the response properly. Please try again."
-                else:
-                    ai_message = "Sorry, I couldn't translate the response properly. Please try again."
+            translate_result = None
+            translate_payload = {
+                "model": model_used,
+                "messages": translate_messages,
+                "temperature": 0.3,
+                "max_tokens": 500,
+            }
+
+            for key_index, api_key in enumerate(OPENROUTER_API_KEYS, start=1):
+                try:
+                    async with httpx.AsyncClient(timeout=15.0) as client:
+                        response2 = await client.post(
+                            OPENROUTER_URL,
+                            headers=build_openrouter_headers(api_key),
+                            json=translate_payload
+                        )
+
+                    if response2.status_code == 200:
+                        result2 = response2.json()
+                        ai_message_2 = result2["choices"][0]["message"]["content"].strip()
+                        if not contains_cjk(ai_message_2):
+                            translate_result = ai_message_2
+                            break
+
+                    if response2.status_code in RETRYABLE_OPENROUTER_STATUS_CODES and key_index < len(OPENROUTER_API_KEYS):
+                        continue
+
+                except asyncio.TimeoutError:
+                    if key_index < len(OPENROUTER_API_KEYS):
+                        continue
+
+            if translate_result:
+                ai_message = sanitize_ai_response(translate_result)
+            else:
+                ai_message = "Sorry, I couldn't translate the response properly. Please try again."
         except Exception as ex:
             logger.error(f"Translation error: {ex}")
             ai_message = "Sorry, I couldn't translate the response properly. Please try again."
@@ -697,7 +757,8 @@ async def health_check():
     """Health check endpoint"""
     return {
         "status": "healthy",
-        "openrouter_configured": bool(OPENROUTER_API_KEY),
+        "openrouter_configured": bool(OPENROUTER_API_KEYS),
+        "openrouter_key_count": len(OPENROUTER_API_KEYS),
         "available_models": AI_MODELS
     }
 

@@ -8,6 +8,11 @@ services:
     envVars:
       - key: OPENROUTER_API_KEY
         sync: false
+      - key: OPENROUTER_API_KEYS
+        sync: false
+      - key: OPENROUTER_REQUEST_TIMEOUT_SECONDS
+        value: "8"
+        sync: false
       - key: CORS_ORIGINS
         value: http://localhost:3000
         sync: false
