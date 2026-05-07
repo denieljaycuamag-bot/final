@@ -316,7 +316,7 @@ async def get_fastest_response(
     logger.info(f"Racing models: {first_batch}")
     
     # Create parallel tasks for first batch
-    tasks = [try_model(model, messages, headers) for model in first_batch]
+    tasks = [asyncio.create_task(try_model(model, messages, headers)) for model in first_batch]
     
     # Wait for first successful response
     done, pending = await asyncio.wait(
