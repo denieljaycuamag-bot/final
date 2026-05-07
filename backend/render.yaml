@@ -9,8 +9,5 @@ services:
       - key: OPENROUTER_API_KEY
         sync: false
       - key: CORS_ORIGINS
-        value: http://localhost:3000,http://localhost:3001
-        sync: false
-      - key: CORS_ORIGIN_REGEX
-        value: https://.*\.vercel\.app$
+        value: http://localhost:3000
         sync: false
