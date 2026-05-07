@@ -183,12 +183,33 @@ def sanitize_ai_response(text: str) -> str:
 
     cleaned_lines = []
     for line in text.splitlines():
+        # Skip script-like speaker lines
         if re.match(r"(?im)^\s*(user|assistant|you)\s*:\s*", line):
             continue
-        cleaned_lines.append(line)
+
+        # Remove common list markers at start of line (e.g., '-', '*', '•', '1.')
+        line = re.sub(r"^\s*(?:[-\u2022\*]|\d+[\.|\)])\s*", "", line)
+
+        # Remove stray asterisks used for emphasis anywhere
+        line = line.replace("*", "")
+
+        # Strip invisible/control characters and trim
+        line = re.sub(r"[\r\t]+", " ", line).strip()
+
+        if line:
+            cleaned_lines.append(line)
 
     cleaned = "\n".join(cleaned_lines).strip()
+
+    # Collapse excessive blank lines
     cleaned = re.sub(r"\n{3,}", "\n\n", cleaned)
+
+    # Remove repeated punctuation sequences like '---' or '***'
+    cleaned = re.sub(r"([\-=_\*]){2,}", "", cleaned)
+
+    # Ensure response contains only allowed visible characters (leave punctuation but remove emojis)
+    cleaned = re.sub(r"[\U00010000-\U0010ffff]", "", cleaned)
+
     return cleaned
 
 
@@ -408,9 +429,14 @@ Creator and purpose rule:
         "- Create simple and effective workout plans\n"
         "- Estimate approximate calories burned when relevant\n\n"
         "LANGUAGE RULES:\n"
-        "- Reply only in English or Cebuano (Bisaya)\n"
-        "- Never reply in Chinese or any unsupported language\n"
-        "- Match the user's preferred language whenever possible\n"
+        "- **CRITICAL**: You MUST respond ONLY in English or Cebuano (Bisaya). No exceptions.\n"
+        "- Allowed languages: English and Cebuano (Bisaya) ONLY\n"
+        "- Forbidden languages: Chinese, Japanese, Korean, Spanish, French, German, Tagalog, or any other language\n"
+        "- If the user writes in a language other than English or Bisaya, respond in English asking them to use English or Bisaya\n"
+        "- Match the user's language preference when they use English or Bisaya\n"
+        "- NEVER generate text in any language besides English or Cebuano\n"
+        "- NEVER mix languages in a single response\n"
+        "- Do NOT use formatting characters or list markers such as '*', '•', '-', '1.', or emojis. Reply in plain sentences only.\n"
         "- Use natural conversational wording\n"
         "- Avoid awkward grammar and robotic phrasing\n\n"
         "STRICT RESPONSE RULES:\n"
