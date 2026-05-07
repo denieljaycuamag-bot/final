@@ -8,10 +8,132 @@ import logging
 from typing import Dict, List, Optional
 from datetime import datetime
 import re
+import asyncio
+from collections import deque
+import time
+
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 
+# ============================================================================
+# PERFORMANCE TRACKING SYSTEM
+# ============================================================================
+class ModelPerformanceTracker:
+    """Track model response times and success rates for intelligent switching"""
+    
+    def __init__(self):
+        self.model_stats = {}
+        self.recent_response_times = {}  # Store last 10 response times per model
+        self.max_history = 10
+        
+    def record_success(self, model: str, response_time: float):
+        """Record successful response with timing"""
+        if model not in self.model_stats:
+            self.model_stats[model] = {
+                "total_requests": 0,
+                "successful_requests": 0,
+                "failed_requests": 0,
+                "avg_response_time": 0
+            }
+            self.recent_response_times[model] = deque(maxlen=self.max_history)
+        
+        self.model_stats[model]["total_requests"] += 1
+        self.model_stats[model]["successful_requests"] += 1
+        self.recent_response_times[model].append(response_time)
+        
+        # Update average response time
+        times = list(self.recent_response_times[model])
+        self.model_stats[model]["avg_response_time"] = sum(times) / len(times)
+    
+    def record_failure(self, model: str):
+        """Record failed response"""
+        if model not in self.model_stats:
+            self.model_stats[model] = {
+                "total_requests": 0,
+                "successful_requests": 0,
+                "failed_requests": 0,
+                "avg_response_time": 999
+            }
+        
+        self.model_stats[model]["total_requests"] += 1
+        self.model_stats[model]["failed_requests"] += 1
+    
+    def get_sorted_models(self, models: List[str]) -> List[str]:
+        """Sort models by performance (fastest + most reliable first)"""
+        def model_score(model: str) -> tuple:
+            stats = self.model_stats.get(model, {})
+            
+            # If no data, give neutral score
+            if not stats:
+                return (0.5, 5.0)  # (success_rate, avg_time)
+            
+            total = stats.get("total_requests", 0)
+            if total == 0:
+                return (0.5, 5.0)
+            
+            success_rate = stats.get("successful_requests", 0) / total
+            avg_time = stats.get("avg_response_time", 5.0)
+            
+            return (success_rate, avg_time)
+        
+        # Sort by success rate (desc) then by response time (asc)
+        sorted_models = sorted(models, key=lambda m: (-model_score(m)[0], model_score(m)[1]))
+        return sorted_models
+    
+    def get_stats(self) -> dict:
+        """Get current performance statistics"""
+        return self.model_stats
+
+
+# ============================================================================
+# RESPONSE CACHE SYSTEM
+# ============================================================================
+class ResponseCache:
+    """Cache recent responses for instant replies to similar questions"""
+    
+    def __init__(self, max_size: int = 50, ttl_seconds: int = 300):
+        self.cache = {}
+        self.max_size = max_size
+        self.ttl_seconds = ttl_seconds
+    
+    def _normalize_query(self, text: str) -> str:
+        """Normalize query for cache matching"""
+        return re.sub(r'\s+', ' ', text.lower().strip())
+    
+    def get(self, query: str, user_id: str) -> Optional[str]:
+        """Get cached response if available and not expired"""
+        key = f"{user_id}:{self._normalize_query(query)}"
+        
+        if key in self.cache:
+            cached_data = self.cache[key]
+            if time.time() - cached_data["timestamp"] < self.ttl_seconds:
+                logger.info(f"Cache HIT for user {user_id}")
+                return cached_data["response"]
+            else:
+                # Expired, remove it
+                del self.cache[key]
+        
+        return None
+    
+    def set(self, query: str, user_id: str, response: str):
+        """Cache a response"""
+        key = f"{user_id}:{self._normalize_query(query)}"
+        
+        # Simple LRU: if cache is full, remove oldest entry
+        if len(self.cache) >= self.max_size:
+            oldest_key = min(self.cache.keys(), key=lambda k: self.cache[k]["timestamp"])
+            del self.cache[oldest_key]
+        
+        self.cache[key] = {
+            "response": response,
+            "timestamp": time.time()
+        }
+
+
+# ============================================================================
+# UTILITY FUNCTIONS
+# ============================================================================
 def contains_cjk(text: str) -> bool:
     """Return True if text contains CJK (Chinese/Japanese/Korean) characters."""
     if not text:
@@ -69,6 +191,10 @@ def sanitize_ai_response(text: str) -> str:
     cleaned = re.sub(r"\n{3,}", "\n\n", cleaned)
     return cleaned
 
+
+# ============================================================================
+# FAST API INITIALIZATION
+# ============================================================================
 load_dotenv()
 
 app = FastAPI()
@@ -86,7 +212,10 @@ app.add_middleware(
 OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY")
 OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions"
 
+# Model pool - prioritized by general speed and availability
 AI_MODELS = [
+    "tencent/hy3-preview:free",
+    "poolside/laguna-m.1:free",
     "openrouter/auto",
     "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free",
     "openrouter/free-3.5-turbo:free",
@@ -95,6 +224,11 @@ AI_MODELS = [
     "meta-llama/llama-3.1-8b-instruct:free",
     "google/gemini-flash-1.5:free"
 ]
+
+# Global instances
+performance_tracker = ModelPerformanceTracker()
+response_cache = ResponseCache(max_size=100, ttl_seconds=300)  # 5 min cache
+
 
 class ChatMessage(BaseModel):
     message: str
@@ -113,6 +247,117 @@ class WorkoutLog(BaseModel):
 workout_history: Dict[str, List[dict]] = {}
 
 
+# ============================================================================
+# PARALLEL MODEL REQUEST SYSTEM
+# ============================================================================
+async def try_model(
+    model: str,
+    messages: List[dict],
+    headers: dict,
+    timeout: float = 10.0
+) -> Optional[tuple]:
+    """
+    Try a single model and return (success, response, time) or None
+    """
+    start_time = time.time()
+    
+    try:
+        payload = {
+            "model": model,
+            "messages": messages,
+            "temperature": 0.7,
+            "max_tokens": 500,
+        }
+        
+        async with httpx.AsyncClient(timeout=timeout) as client:
+            response = await client.post(
+                OPENROUTER_URL,
+                headers=headers,
+                json=payload
+            )
+            
+            elapsed = time.time() - start_time
+            
+            if response.status_code == 200:
+                result = response.json()
+                ai_message = result["choices"][0]["message"]["content"]
+                
+                # Quick validation
+                if ai_message and len(ai_message.strip()) > 0:
+                    return (True, ai_message.strip(), elapsed, model)
+            
+            logger.warning(f"Model {model} returned status {response.status_code}")
+            return None
+            
+    except asyncio.TimeoutError:
+        logger.warning(f"Model {model} timed out after {timeout}s")
+        return None
+    except Exception as e:
+        logger.error(f"Model {model} error: {str(e)}")
+        return None
+
+
+async def get_fastest_response(
+    messages: List[dict],
+    headers: dict,
+    max_parallel: int = 3
+) -> tuple:
+    """
+    Race multiple models in parallel and return the fastest valid response
+    Returns: (success, response_text, elapsed_time, model_name)
+    """
+    # Get models sorted by performance
+    sorted_models = performance_tracker.get_sorted_models(AI_MODELS)
+    
+    # Try top performers first in parallel
+    first_batch = sorted_models[:max_parallel]
+    remaining_models = sorted_models[max_parallel:]
+    
+    logger.info(f"Racing models: {first_batch}")
+    
+    # Create parallel tasks for first batch
+    tasks = [try_model(model, messages, headers) for model in first_batch]
+    
+    # Wait for first successful response
+    done, pending = await asyncio.wait(
+        tasks,
+        return_when=asyncio.FIRST_COMPLETED
+    )
+    
+    # Check if we got a winner
+    for task in done:
+        result = task.result()
+        if result:
+            # Cancel remaining tasks
+            for p in pending:
+                p.cancel()
+            
+            success, response, elapsed, model = result
+            performance_tracker.record_success(model, elapsed)
+            logger.info(f"✓ Model {model} won the race in {elapsed:.2f}s")
+            return (True, response, elapsed, model)
+    
+    # First batch failed, try remaining models sequentially
+    logger.info("First batch failed, trying remaining models...")
+    
+    for model in remaining_models:
+        result = await try_model(model, messages, headers, timeout=15.0)
+        if result:
+            success, response, elapsed, model = result
+            performance_tracker.record_success(model, elapsed)
+            logger.info(f"✓ Fallback model {model} succeeded in {elapsed:.2f}s")
+            return (True, response, elapsed, model)
+        else:
+            performance_tracker.record_failure(model)
+    
+    # All failed
+    logger.error("All models failed to respond")
+    return (False, None, 0, None)
+
+
+# ============================================================================
+# API ENDPOINTS
+# ============================================================================
 @app.get("/")
 async def root():
     return {"message": "Fitness Tracker API is running! 💪", "status": "ok"}
@@ -120,11 +365,22 @@ async def root():
 
 @app.post("/api/chat")
 async def chat(data: ChatMessage):
-
     if not OPENROUTER_API_KEY:
         logger.error("OpenRouter API key not configured")
         raise HTTPException(status_code=500, detail="OpenRouter API key not configured")
 
+    # Check cache first for instant response
+    cached_response = response_cache.get(data.message, data.user_id)
+    if cached_response:
+        return {
+            "response": cached_response,
+            "user_id": data.user_id,
+            "model_used": "cache",
+            "cached": True,
+            "response_time": 0.001
+        }
+
+    # Build system prompt
     creator_prompt = ""
     if asks_about_creator(data.message):
         creator_prompt = """
@@ -135,7 +391,6 @@ Creator and purpose rule:
 - Keep the answer brief, polished, and confident.
 """
 
-    # FIXED: Moved system_prompt outside the if block so it's always defined
     system_prompt = (
         "You are FitBot, a smart, supportive, and professional AI fitness coach designed to help users improve their health, fitness, and daily wellness habits.\n\n"
         "CORE RESPONSIBILITIES:\n"
@@ -224,152 +479,119 @@ Creator and purpose rule:
 
     if creator_prompt:
         system_prompt = system_prompt + "\n\n" + creator_prompt
-    
-    last_error = None
-  
-    for model in AI_MODELS:
-        try:
-            logger.info(f"Trying model: {model}")
-            
-            headers = {
-                "Authorization": f"Bearer {OPENROUTER_API_KEY}",
-                "Content-Type": "application/json",
-                "HTTP-Referer": "http://localhost:3000",
-                "X-Title": "Fitness Tracker"
-            }
 
-            history = workout_history.get(data.user_id, [])
-            context_lines = []
-            if history:
-                for e in history[-6:]:
-                    parts = []
-                    if e.get("exercise"):
-                        parts.append(str(e.get("exercise")))
-                    sets = e.get("sets")
-                    reps = e.get("reps")
-                    if sets or reps:
-                        parts.append(f"{sets} sets x {reps} reps")
-                    if e.get("duration_minutes"):
-                        parts.append(f"{e.get('duration_minutes')} min")
-                    if e.get("notes"):
-                        parts.append(f"notes: {e.get('notes')}")
-                    ts = e.get("timestamp")
-                    context_lines.append(" | ".join(parts) + (f" ({ts})" if ts else ""))
+    # Build workout history context
+    history = workout_history.get(data.user_id, [])
+    context_lines = []
+    if history:
+        for e in history[-6:]:
+            parts = []
+            if e.get("exercise"):
+                parts.append(str(e.get("exercise")))
+            sets = e.get("sets")
+            reps = e.get("reps")
+            if sets or reps:
+                parts.append(f"{sets} sets x {reps} reps")
+            if e.get("duration_minutes"):
+                parts.append(f"{e.get('duration_minutes')} min")
+            if e.get("notes"):
+                parts.append(f"notes: {e.get('notes')}")
+            ts = e.get("timestamp")
+            context_lines.append(" | ".join(parts) + (f" ({ts})" if ts else ""))
 
-            context_prompt = ""
-            if context_lines:
-                context_prompt = "Recent workouts:\n" + "\n".join(context_lines)
+    context_prompt = ""
+    if context_lines:
+        context_prompt = "Recent workouts:\n" + "\n".join(context_lines)
 
-            messages_for_model = []
-       
-            messages_for_model.append({"role": "system", "content": system_prompt})
-           
-            if context_prompt:
-                messages_for_model.append({"role": "system", "content": context_prompt})
-            
-            messages_for_model.append({"role": "user", "content": data.message})
+    # Prepare messages
+    messages_for_model = []
+    messages_for_model.append({"role": "system", "content": system_prompt})
+    if context_prompt:
+        messages_for_model.append({"role": "system", "content": context_prompt})
+    messages_for_model.append({"role": "user", "content": data.message})
 
-            payload = {
-                "model": model,
-                "messages": messages_for_model,
-                "temperature": 0.7,
-                "max_tokens": 500,
-            }
-            
-            async with httpx.AsyncClient(timeout=30.0) as client:
-                response = await client.post(
-                    OPENROUTER_URL,
-                    headers=headers,
-                    json=payload
-                )
-                
-                if response.status_code == 200:
-                    result = response.json()
-                    ai_message = result["choices"][0]["message"]["content"]
+    # Prepare headers
+    headers = {
+        "Authorization": f"Bearer {OPENROUTER_API_KEY}",
+        "Content-Type": "application/json",
+        "HTTP-Referer": "http://localhost:3000",
+        "X-Title": "Fitness Tracker"
+    }
 
-                    ai_message = sanitize_ai_response(ai_message.strip())
-                    
-                    if contains_cjk(ai_message):
-                        logger.warning(f"CJK detected in model response for user {data.user_id} using {model}")
-                        try:
-                            translate_instructions = (
-                                "The previous assistant reply contained characters from Chinese/Japanese/Korean scripts. "
-                                "Provide the same content translated into English or Cebuano (Bisaya) ONLY. "
-                                "Do NOT include any Chinese, Japanese, or Korean characters. "
-                                
-                            )
-
-                            translate_messages = [
-                                {"role": "system", "content": system_prompt + "\n\n" + translate_instructions},
-                                {"role": "user", "content": f"Please translate the following assistant reply into English or Bisaya only:\n\n{ai_message}"},
-                            ]
-
-                            translate_payload = {
-                                "model": model,
-                                "messages": translate_messages,
-                                "temperature": 0.3,
-                                "max_tokens": 500,
-                            }
-
-                            response2 = await client.post(OPENROUTER_URL, headers=headers, json=translate_payload)
-                            if response2.status_code == 200:
-                                result2 = response2.json()
-                                ai_message_2 = result2["choices"][0]["message"]["content"].strip()
-
-                                if contains_cjk(ai_message_2):
-                                    logger.warning(
-                                        f"CJK still detected after translation retry for user {data.user_id} using {model}"
-                                    )
-                                    ai_message = (
-                                        "Sorry, I couldn't translate the assistant reply right now. "
-                                        "Please try again."
-                                    )
-                                else:
-                                    ai_message = sanitize_ai_response(ai_message_2)
-                            else:
-                                logger.warning(f"Translation request failed with status {response2.status_code}")
-                                ai_message = (
-                                    "Sorry, I couldn't translate the assistant reply right now. "
-                                    "Please try again."
-                                )
-                        except Exception as ex:
-                            logger.error(f"Translation retry error: {ex}")
-                            ai_message = (
-                                "Sorry, I couldn't translate the assistant reply right now. "
-                                "Please try again."
-                            )
-
-                    if has_script_dialogue(ai_message):
-                        ai_message = sanitize_ai_response(ai_message)
-
-                    if not ai_message:
-                        ai_message = (
-                            "I can help with that. Share your goal and current routine, "
-                            "and I'll give you a direct fitness recommendation."
-                        )
-
-                    logger.info(f"Success with model: {model}")
-
-                    return {
-                        "response": ai_message,
-                        "user_id": data.user_id,
-                        "model_used": model
-                    }
-                else:
-                    logger.warning(f"Model {model} failed with status {response.status_code}")
-                    last_error = f"Status code: {response.status_code}"
-                    continue
-                    
-        except Exception as e:
-            logger.error(f"Error with model {model}: {str(e)}")
-            last_error = str(e)
-            continue
-    
-    logger.error(f"All models failed. Last error: {last_error}")
-    raise HTTPException(
-        status_code=500, 
-        detail=f"All AI models failed. Please try again later. Error: {last_error}"
+    # Get fastest response using parallel racing
+    success, ai_message, response_time, model_used = await get_fastest_response(
+        messages_for_model,
+        headers,
+        max_parallel=3  # Race 3 models at once
     )
+
+    if not success:
+        raise HTTPException(
+            status_code=500,
+            detail="All AI models failed. Please try again later."
+        )
+
+    # Sanitize response
+    ai_message = sanitize_ai_response(ai_message)
+
+    # Handle CJK characters
+    if contains_cjk(ai_message):
+        logger.warning(f"CJK detected, attempting translation...")
+        try:
+            translate_instructions = (
+                "The previous assistant reply contained characters from Chinese/Japanese/Korean scripts. "
+                "Provide the same content translated into English or Cebuano (Bisaya) ONLY. "
+                "Do NOT include any Chinese, Japanese, or Korean characters."
+            )
+
+            translate_messages = [
+                {"role": "system", "content": system_prompt + "\n\n" + translate_instructions},
+                {"role": "user", "content": f"Please translate the following assistant reply into English or Bisaya only:\n\n{ai_message}"},
+            ]
+
+            async with httpx.AsyncClient(timeout=15.0) as client:
+                translate_payload = {
+                    "model": model_used,
+                    "messages": translate_messages,
+                    "temperature": 0.3,
+                    "max_tokens": 500,
+                }
+                response2 = await client.post(OPENROUTER_URL, headers=headers, json=translate_payload)
+                
+                if response2.status_code == 200:
+                    result2 = response2.json()
+                    ai_message_2 = result2["choices"][0]["message"]["content"].strip()
+                    
+                    if not contains_cjk(ai_message_2):
+                        ai_message = sanitize_ai_response(ai_message_2)
+                    else:
+                        ai_message = "Sorry, I couldn't translate the response properly. Please try again."
+                else:
+                    ai_message = "Sorry, I couldn't translate the response properly. Please try again."
+        except Exception as ex:
+            logger.error(f"Translation error: {ex}")
+            ai_message = "Sorry, I couldn't translate the response properly. Please try again."
+
+    # Final sanitization
+    if has_script_dialogue(ai_message):
+        ai_message = sanitize_ai_response(ai_message)
+
+    if not ai_message:
+        ai_message = (
+            "I can help with that. Share your goal and current routine, "
+            "and I'll give you a direct fitness recommendation."
+        )
+
+    # Cache the response
+    response_cache.set(data.message, data.user_id, ai_message)
+
+    return {
+        "response": ai_message,
+        "user_id": data.user_id,
+        "model_used": model_used,
+        "response_time": round(response_time, 3),
+        "cached": False
+    }
 
 
 @app.post("/api/workout/log")
@@ -451,6 +673,19 @@ async def health_check():
         "status": "healthy",
         "openrouter_configured": bool(OPENROUTER_API_KEY),
         "available_models": AI_MODELS
+    }
+
+
+@app.get("/api/stats")
+async def get_performance_stats():
+    """Get model performance statistics"""
+    stats = performance_tracker.get_stats()
+    sorted_models = performance_tracker.get_sorted_models(AI_MODELS)
+    
+    return {
+        "model_performance": stats,
+        "model_priority_order": sorted_models,
+        "cache_size": len(response_cache.cache)
     }
 
 
